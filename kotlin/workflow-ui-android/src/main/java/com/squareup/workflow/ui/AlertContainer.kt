@@ -16,17 +16,19 @@
 package com.squareup.workflow.ui
 
 import android.content.Context
+import android.content.DialogInterface
 import android.support.annotation.StyleRes
 import android.support.v7.app.AlertDialog
 import android.util.AttributeSet
+import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import com.squareup.workflow.ui.AlertScreen.Button
 import com.squareup.workflow.ui.AlertScreen.Button.NEGATIVE
 import com.squareup.workflow.ui.AlertScreen.Button.NEUTRAL
 import com.squareup.workflow.ui.AlertScreen.Button.POSITIVE
 import com.squareup.workflow.ui.AlertScreen.Event.ButtonClicked
 import com.squareup.workflow.ui.AlertScreen.Event.Canceled
-import io.reactivex.Observable
 
 /**
  * Class returned by [ModalContainer.forAlertContainerScreen], qv for details.
@@ -39,53 +41,80 @@ internal class AlertContainer
   @StyleRes private val dialogThemeResId: Int = 0
 ) : ModalContainer<AlertScreen>(context, attributeSet) {
 
-  @ExperimentalWorkflowUi
-  override fun showDialog(
-    modalScreen: AlertScreen,
-    screens: Observable<out AlertScreen>,
+  override fun buildDialog(
+    initialValue: AlertScreen,
     viewRegistry: ViewRegistry
-  ): AlertDialog {
-    val builder = AlertDialog.Builder(context, dialogThemeResId)
+  ): DialogRef<AlertScreen> {
+    return AlertDialog.Builder(context, dialogThemeResId)
+        .create()
+        .run {
+          updateDialog(DialogRef(initialValue, this))
+        }
+  }
 
-    if (modalScreen.cancelable) {
-      builder.setOnCancelListener { modalScreen.onEvent(Canceled) }
+  override fun updateDialog(dialogRef: DialogRef<AlertScreen>): DialogRef<AlertScreen> {
+    val dialog = dialogRef.dialog as AlertDialog
+    val value = dialogRef.value
+
+    if (value.cancelable) {
+      dialog.setOnCancelListener { value.onEvent(Canceled) }
+      dialog.setCancelable(true)
     } else {
-      builder.setCancelable(false)
+      dialog.setCancelable(false)
     }
 
-    for ((button, name) in modalScreen.buttons) {
-      when (button) {
-        POSITIVE -> builder.setPositiveButton(name) { _, _ ->
-          modalScreen.onEvent(ButtonClicked(POSITIVE))
-        }
-        NEGATIVE -> builder.setNegativeButton(name) { _, _ ->
-          modalScreen.onEvent(ButtonClicked(NEGATIVE))
-        }
-        NEUTRAL -> builder.setNeutralButton(name) { _, _ ->
-          modalScreen.onEvent(ButtonClicked(NEUTRAL))
-        }
-      }
+    for (button in Button.values()) {
+      value.buttons[button]
+          ?.let { name ->
+            dialog.setButton(button.toId(), name) { _, _ ->
+              value.onEvent(ButtonClicked(button))
+            }
+          }
+          ?: run {
+            dialog.getButton(button.toId())
+                ?.visibility = View.INVISIBLE
+          }
     }
 
-    modalScreen.message.takeIf { it.isNotBlank() }
-        .let { builder.setMessage(it) }
-    modalScreen.title.takeIf { it.isNotBlank() }
-        .let { builder.setTitle(it) }
+    dialog.setMessage(value.message)
+    dialog.setTitle(value.title)
 
-    return builder.show()
+    return dialogRef
+  }
+
+  private fun Button.toId(): Int = when (this) {
+    POSITIVE -> DialogInterface.BUTTON_POSITIVE
+    NEGATIVE -> DialogInterface.BUTTON_NEGATIVE
+    NEUTRAL -> DialogInterface.BUTTON_NEUTRAL
+  }
+
+  private class Runner : ViewRunner<AlertContainerScreen<*>> {
+    private lateinit var view: AlertContainer
+
+    override fun bind(
+      view: View,
+      registry: ViewRegistry
+    ) {
+      this.view = (view as AlertContainer)
+      this.view.registry = registry
+    }
+
+    override fun update(newValue: AlertContainerScreen<*>) {
+      view.update(newValue)
+    }
   }
 
   class Binding(
     @StyleRes private val dialogThemeResId: Int = 0
   ) : ViewBinding<AlertContainerScreen<*>>
   by BuilderBinding(
-      type = AlertContainerScreen::class.java,
-      builder = { screens, viewRegistry, context, _ ->
+      type = AlertContainerScreen::class,
+      builder = { viewRegistry, initialValue, context, _ ->
         AlertContainer(context, dialogThemeResId = dialogThemeResId)
             .apply {
               id = R.id.workflow_alert_container
               layoutParams = ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-              takeScreens(screens, viewRegistry)
+              bindRunner(viewRegistry, initialValue, Runner())
             }
       }
   )

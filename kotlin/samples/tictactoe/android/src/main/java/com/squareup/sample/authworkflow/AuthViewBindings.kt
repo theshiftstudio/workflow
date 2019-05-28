@@ -19,7 +19,7 @@ import com.squareup.workflow.ui.ViewRegistry
 
 @Suppress("EXPERIMENTAL_API_USAGE")
 val AuthViewBindings = ViewRegistry(
-    AuthorizingCoordinator,
-    LoginCoordinator,
-    SecondFactorCoordinator
+    AuthorizingViewRunner,
+    LoginViewRunner,
+    SecondFactorViewRunner
 )

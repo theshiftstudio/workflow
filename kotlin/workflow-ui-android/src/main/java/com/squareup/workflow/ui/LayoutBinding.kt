@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 Square Inc.
+ * Copyright 2019 Square Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,58 +17,37 @@ package com.squareup.workflow.ui
 
 import android.content.Context
 import android.support.annotation.LayoutRes
-import android.support.transition.Scene
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import com.squareup.coordinators.Coordinator
-import com.squareup.coordinators.Coordinators
-import io.reactivex.Observable
+import kotlin.reflect.KClass
 
 /**
- * A [ViewBinding] built from a [layoutId] and a [coordinatorConstructor].
+ * A [ViewBinding] built from a [layoutId] and a [runnerConstructor] function.
  * (Use [BuilderBinding] to create views from code.)
  *
- * Typical usage is to have a [Coordinator]'s `companion object` implement
+ * Typical usage is to have a [ViewRunner]'s `companion object` implement
  * [ViewBinding] by delegating to one of these, tied to the layout resource
  * it typically expects to drive.
  *
- *    class NewGameCoordinator(
- *       private val screens: Observable<out NewGameScreen>
- *    ) : Coordinator() {
- *      // ...
- *      companion object : ViewBuilder<NewGameScreen> by LayoutViewBuilder.of(
- *          R.layout.new_game_layout, ::NewGameCoordinator
- *      )
- *    }
+ *    TBD
  *
  * This pattern allows us to assemble a [ViewRegistry] out of the
- * [Coordinator] classes themselves.
+ * [ViewRunner] classes themselves.
  *
  *    val TicTacToeViewBuilders = ViewRegistry(
- *        NewGameCoordinator, GamePlayCoordinator, GameOverCoordinator
+ *        NewGameViewRunner, GamePlayViewRunner, GameOverViewRunner
  *    )
- *
- * Also note that two flavors of [coordinatorConstructor] are supported. Every
- * [Coordinator] must accept an `[Observable]<out [T]>`. Optionally, they can
- * also have a second [ViewRegistry] argument, to allow recursive calls
- * to render nested screens.
  */
 @ExperimentalWorkflowUi
-class LayoutBinding<T : Any> private constructor(
-  override val type: String,
+class LayoutBinding<T : Any>(
+  override val type: KClass<T>,
   @LayoutRes private val layoutId: Int,
-  private val coordinatorConstructor: (Observable<out T>, ViewRegistry) -> Coordinator
+  private val runnerConstructor: () -> ViewRunner<T>
 ) : ViewBinding<T> {
-  constructor(
-    type: Class<T>,
-    @LayoutRes layoutId: Int,
-    coordinatorConstructor: (Observable<out T>, ViewRegistry) -> Coordinator
-  ) : this(type.name, layoutId, coordinatorConstructor)
-
   override fun buildView(
-    screens: Observable<out T>,
-    viewRegistry: ViewRegistry,
+    registry: ViewRegistry,
+    initialValue: T,
     contextForNewView: Context,
     container: ViewGroup?
   ): View {
@@ -76,45 +55,16 @@ class LayoutBinding<T : Any> private constructor(
         .cloneInContext(contextForNewView)
         .inflate(layoutId, container, false)
         .apply {
-          Coordinators.bind(this) {
-            coordinatorConstructor(screens, viewRegistry)
-          }
-        }
-  }
-
-  override fun buildScene(
-    screens: Observable<out T>,
-    viewRegistry: ViewRegistry,
-    contextForNewView: Context,
-    container: ViewGroup,
-    enterAction: ((Scene) -> Unit)?
-  ): Scene {
-    return Scene.getSceneForLayout(container, layoutId, contextForNewView)
-        .apply {
-          setEnterAction {
-            if (enterAction != null) enterAction(this)
-            viewOrNull()?.let {
-              Coordinators.bind(it) { coordinatorConstructor(screens, viewRegistry) }
-            }
-          }
+          bindRunner(registry, initialValue, runnerConstructor.invoke())
         }
   }
 
   companion object {
     inline fun <reified T : Any> of(
       @LayoutRes layoutId: Int,
-      noinline coordinatorConstructor: (Observable<out T>) -> Coordinator
-    ) = of(
-        layoutId
-    ) { screens: Observable<out T>, _ -> coordinatorConstructor(screens) }
-
-    inline fun <reified T : Any> of(
-      @LayoutRes layoutId: Int,
-      noinline coordinatorConstructor: (Observable<out T>, ViewRegistry) -> Coordinator
+      noinline runnerConstructor: () -> ViewRunner<T>
     ): LayoutBinding<T> {
-      return LayoutBinding(
-          T::class.java, layoutId, coordinatorConstructor
-      )
+      return LayoutBinding(T::class, layoutId, runnerConstructor)
     }
   }
 }

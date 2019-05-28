@@ -20,57 +20,46 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
-import com.squareup.coordinators.Coordinator
 import com.squareup.sample.authworkflow.SecondFactorScreen.Event.CancelSecondFactor
 import com.squareup.sample.authworkflow.SecondFactorScreen.Event.SubmitSecondFactor
+import com.squareup.sample.tictactoe.R
 import com.squareup.workflow.ui.LayoutBinding
 import com.squareup.workflow.ui.ViewBinding
+import com.squareup.workflow.ui.ViewRegistry
+import com.squareup.workflow.ui.ViewRunner
 import com.squareup.workflow.ui.setBackHandler
-import io.reactivex.Observable
-import io.reactivex.disposables.CompositeDisposable
-import com.squareup.sample.tictactoe.R
 
-@Suppress("EXPERIMENTAL_API_USAGE")
-internal class SecondFactorCoordinator(private val screens: Observable<out SecondFactorScreen>) :
-    Coordinator() {
-  private val subs = CompositeDisposable()
-
+@Suppress("EXPERIMENTAL_API_USAGE", "EXPERIMENTAL_OVERRIDE")
+internal class SecondFactorViewRunner : ViewRunner<SecondFactorScreen> {
+  private lateinit var rootView: View
   private lateinit var toolbar: Toolbar
   private lateinit var error: TextView
   private lateinit var secondFactor: EditText
   private lateinit var button: Button
 
-  override fun attach(view: View) {
-    super.attach(view)
-
+  override fun bind(
+    view: View,
+    registry: ViewRegistry
+  ) {
+    rootView = view
     toolbar = view.findViewById(R.id.second_factor_toolbar)
     error = view.findViewById(R.id.second_factor_error_message)
     secondFactor = view.findViewById(R.id.second_factor)
     button = view.findViewById(R.id.second_factor_submit_button)
-
-    subs.add(screens.subscribe { this.update(it, view) })
   }
 
-  override fun detach(view: View) {
-    subs.clear()
-    super.detach(view)
-  }
+  override fun update(newValue: SecondFactorScreen) {
+    rootView.setBackHandler { newValue.onEvent(CancelSecondFactor) }
+    toolbar.setNavigationOnClickListener { newValue.onEvent(CancelSecondFactor) }
 
-  private fun update(
-    screen: SecondFactorScreen,
-    view: View
-  ) {
-    view.setBackHandler { screen.onEvent(CancelSecondFactor) }
-    toolbar.setNavigationOnClickListener { screen.onEvent(CancelSecondFactor) }
-
-    error.text = screen.errorMessage
+    error.text = newValue.errorMessage
 
     button.setOnClickListener {
-      screen.onEvent(SubmitSecondFactor(secondFactor.text.toString()))
+      newValue.onEvent(SubmitSecondFactor(secondFactor.text.toString()))
     }
   }
 
   companion object : ViewBinding<SecondFactorScreen> by LayoutBinding.of(
-      R.layout.second_factor_layout, ::SecondFactorCoordinator
+      R.layout.second_factor_layout, ::SecondFactorViewRunner
   )
 }

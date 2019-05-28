@@ -15,12 +15,14 @@
  */
 package com.squareup.sample.helloworkflowfragment
 
-import com.squareup.workflow.ui.ViewRegistry
 import com.squareup.workflow.ui.WorkflowFragment
+import com.squareup.workflow.ui.ViewRegistry
 
 @Suppress("EXPERIMENTAL_API_USAGE", "EXPERIMENTAL_OVERRIDE")
 class HelloWorkflowFragment : WorkflowFragment<Unit, Unit>() {
   override fun onCreateWorkflow(): Config<Unit, Unit> {
-    return Config.with(HelloWorkflow, ViewRegistry(HelloFragmentCoordinator))
+    return Config.with(HelloWorkflow,
+        ViewRegistry(HelloFragmentViewRunner)
+    )
   }
 }

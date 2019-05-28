@@ -18,34 +18,30 @@ package com.squareup.sample.helloworkflowfragment
 import android.annotation.SuppressLint
 import android.view.View
 import android.widget.TextView
-import com.squareup.coordinators.Coordinator
 import com.squareup.sample.helloworkflowfragment.HelloWorkflow.Rendering
 import com.squareup.workflow.ui.LayoutBinding
 import com.squareup.workflow.ui.ViewBinding
-import io.reactivex.Observable
-import io.reactivex.disposables.CompositeDisposable
+import com.squareup.workflow.ui.ViewRegistry
+import com.squareup.workflow.ui.ViewRunner
 
-@Suppress("EXPERIMENTAL_API_USAGE")
-class HelloFragmentCoordinator(
-  private val renderings: Observable<out Rendering>
-) : Coordinator() {
-  private val subs = CompositeDisposable()
+@Suppress("EXPERIMENTAL_API_USAGE", "EXPERIMENTAL_OVERRIDE")
+class HelloFragmentViewRunner : ViewRunner<Rendering> {
+  private lateinit var messageView: TextView
 
-  @SuppressLint("SetTextI18n")
-  override fun attach(view: View) {
-    val messageView = view.findViewById<TextView>(R.id.hello_message)
-
-    subs.add(renderings.subscribe { rendering ->
-      messageView.text = rendering.message + " Fragment!"
-      messageView.setOnClickListener { rendering.onClick(Unit) }
-    })
+  override fun bind(
+    view: View,
+    registry: ViewRegistry
+  ) {
+    messageView = view.findViewById(R.id.hello_message)
   }
 
-  override fun detach(view: View) {
-    subs.clear()
+  @SuppressLint("SetTextI18n")
+  override fun update(newValue: HelloWorkflow.Rendering) {
+    messageView.text = newValue.message + " Fragment!"
+    messageView.setOnClickListener { newValue.onClick(Unit) }
   }
 
   companion object : ViewBinding<Rendering> by LayoutBinding.of(
-      R.layout.hello_goodbye_layout, ::HelloFragmentCoordinator
+      R.layout.hello_goodbye_layout, ::HelloFragmentViewRunner
   )
 }

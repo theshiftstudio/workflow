@@ -19,44 +19,35 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
-import com.squareup.coordinators.Coordinator
 import com.squareup.sample.authworkflow.LoginScreen.SubmitLogin
+import com.squareup.sample.tictactoe.R
 import com.squareup.workflow.ui.LayoutBinding
 import com.squareup.workflow.ui.ViewBinding
-import io.reactivex.Observable
-import io.reactivex.disposables.CompositeDisposable
-import com.squareup.sample.tictactoe.R
+import com.squareup.workflow.ui.ViewRegistry
+import com.squareup.workflow.ui.ViewRunner
 
-@Suppress("EXPERIMENTAL_API_USAGE")
-internal class LoginCoordinator(private val screens: Observable<out LoginScreen>) : Coordinator() {
-  private val subs = CompositeDisposable()
-
+@Suppress("EXPERIMENTAL_API_USAGE", "EXPERIMENTAL_OVERRIDE")
+internal class LoginViewRunner : ViewRunner<LoginScreen> {
   private lateinit var error: TextView
   private lateinit var email: EditText
   private lateinit var password: EditText
   private lateinit var button: Button
 
-  override fun attach(view: View) {
-    super.attach(view)
-
+  override fun bind(
+    view: View,
+    registry: ViewRegistry
+  ) {
     error = view.findViewById(R.id.login_error_message)
     email = view.findViewById(R.id.login_email)
     password = view.findViewById(R.id.login_password)
     button = view.findViewById(R.id.login_button)
-
-    subs.add(screens.subscribe(this::update))
   }
 
-  override fun detach(view: View) {
-    subs.clear()
-    super.detach(view)
-  }
-
-  private fun update(screen: LoginScreen) {
-    error.text = screen.errorMessage
+  override fun update(newValue: LoginScreen) {
+    error.text = newValue.errorMessage
 
     button.setOnClickListener {
-      screen.onEvent(
+      newValue.onEvent(
           SubmitLogin(
               email.text.toString(), password.text.toString()
           )
@@ -65,6 +56,6 @@ internal class LoginCoordinator(private val screens: Observable<out LoginScreen>
   }
 
   companion object : ViewBinding<LoginScreen> by LayoutBinding.of(
-      R.layout.login_layout, ::LoginCoordinator
+      R.layout.login_layout, ::LoginViewRunner
   )
 }

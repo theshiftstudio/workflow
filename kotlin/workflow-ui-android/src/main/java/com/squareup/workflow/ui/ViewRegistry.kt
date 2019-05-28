@@ -15,20 +15,19 @@
  */
 package com.squareup.workflow.ui
 
-import com.squareup.workflow.ui.BackStackScreen.Key
-import com.squareup.workflow.ui.backstack.BackStackEffect
-import com.squareup.workflow.ui.backstack.NoEffect
-import com.squareup.workflow.ui.backstack.ViewStateStack
+import android.content.Context
+import android.view.View
+import android.view.ViewGroup
+import kotlin.reflect.KClass
 
 /**
- * A collection of [ViewBinding]s and [BackStackEffect]s that can be used to render
- * the stream of screen models emitted by a workflow (via [ViewBinding]), and the
- * visual transitions between them (via [BackStackEffect]).
+ * A collection of [ViewBinding]s that can be used to render
+ * the stream of screen models emitted by a workflow (via [ViewBinding]).
  *
  * Two concrete [ViewBinding] implementations are provided:
  *
  *  - [LayoutBinding], allowing the easy pairing of Android XML layout resources with
- *    [Coordinator][com.squareup.coordinators.Coordinator]s to drive them.
+ *    [ViewRunner]s to drive them.
  *
  *  - [BuilderBinding], which can build views from code.
  *
@@ -36,80 +35,66 @@ import com.squareup.workflow.ui.backstack.ViewStateStack
  *  For example:
  *
  *     val AuthViewBindings = ViewRegistry(
- *         AuthorizingCoordinator, LoginCoordinator, SecondFactorCoordinator
+ *         AuthorizingViewRunner, LoginViewRunner, SecondFactorViewRunner
  *     )
  *
  *     val TicTacToeViewBindings = ViewRegistry(
- *         NewGameCoordinator, GamePlayCoordinator, GameOverCoordinator
- *     ) + NoEffect(from = Key(GamePlayScreen::class.java), to = Key(GameOverScreen::class.java))
+ *         NewGameViewRunner, GamePlayViewRunner, GameOverViewRunner
+ *     )
  *
- *     val ApplicationViewBindings = ViewRegistry(ApplicationCoordinator) +
- *         AuthViewBindings + TicTacToeViewBindings + PushPopEffect
+ *     val ApplicationViewBindings = ViewRegistry(ApplicationViewRunner) +
+ *         AuthViewBindings + TicTacToeViewBindings
  *
- * In the above example, note that the `companion object`s of the various `Coordinator` classes
+ * In the above example, note that the `companion object`s of the various [ViewRunner] classes
  * honor a convention of implementing [ViewBinding], in aid of this kind of assembly. See the
  * class doc on [LayoutBinding] for details.
  */
 @ExperimentalWorkflowUi
 class ViewRegistry private constructor(
-  private val bindings: Map<String, ViewBinding<*>>,
-  private val effects: List<BackStackEffect>
+  private val bindings: Map<KClass<*>, ViewBinding<*>>
 ) {
   constructor(vararg bindings: ViewBinding<*>) : this(
       bindings.map { it.type to it }.toMap().apply {
         check(keys.size == bindings.size) {
-          "${bindings.map { it.type }} should not have duplicate entries."
+          "${bindings.map { it.type }} must not have duplicate entries."
         }
-      },
-      emptyList()
+      }
   )
 
   constructor(vararg registries: ViewRegistry) : this(
       registries.map { it.bindings }
           .reduce { left, right ->
             val duplicateKeys = left.keys.intersect(right.keys)
-            check(duplicateKeys.isEmpty()) { "Should not have duplicate entries $duplicateKeys." }
+            check(duplicateKeys.isEmpty()) { "Must not have duplicate entries: $duplicateKeys." }
             left + right
-          },
-      registries.map { it.effects }
-          .reduce { left, right -> left + right }
+          }
   )
 
-  // This is why I can't make the type field up there Class<T>. If I change this
-  // method to get(type: Class<T>) the return type is coerced to ViewBuilder<out T>,
-  // and everything falls apart.
-  //
-  // https://github.com/square/workflow/issues/18
-  fun <T : Any> getBinding(type: String): ViewBinding<T> {
-    require(type in bindings) { "Unrecognized screen type $type" }
-
+  fun <T : Any> buildView(
+    initialValue: T,
+    contextForNewView: Context,
+    container: ViewGroup? = null
+  ): View {
     @Suppress("UNCHECKED_CAST")
-    return bindings[type] as ViewBinding<T>
+    return (bindings[initialValue::class] as? ViewBinding<T>)
+        ?.buildView(this, initialValue, contextForNewView, container)
+        ?: throw IllegalArgumentException(
+            "No view binding found for $initialValue (${initialValue::class.simpleName})"
+        )
   }
 
-  /**
-   * Returns the first registered [BackStackEffect] that [matches][BackStackEffect.matches], or else
-   * [NoEffect] if none is found. Effects are considered in the order they are added to the
-   * registry.
-   */
-  fun getEffect(
-    from: Key<*>,
-    to: Key<*>,
-    direction: ViewStateStack.Direction
-  ): BackStackEffect {
-    return effects.firstOrNull { it.matches(from, to, direction) } ?: NoEffect
+  fun <T : Any> buildView(
+    initialValue: T,
+    container: ViewGroup
+  ): View {
+    return buildView(initialValue, container.context, container)
   }
 
   operator fun <T : Any> plus(binding: ViewBinding<T>): ViewRegistry {
     check(binding.type !in bindings.keys) {
       "Already registered ${bindings[binding.type]} for ${binding.type}, cannot accept $binding."
     }
-
-    return ViewRegistry(bindings + (binding.type to binding), effects)
-  }
-
-  operator fun plus(effect: BackStackEffect): ViewRegistry {
-    return ViewRegistry(bindings, effects + effect)
+    return ViewRegistry(bindings + (binding.type to binding))
   }
 
   operator fun plus(registry: ViewRegistry): ViewRegistry {

@@ -19,7 +19,6 @@ import android.support.v7.widget.Toolbar
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
-import com.squareup.coordinators.Coordinator
 import com.squareup.sample.gameworkflow.Ending.Draw
 import com.squareup.sample.gameworkflow.Ending.Quitted
 import com.squareup.sample.gameworkflow.Ending.Victory
@@ -32,24 +31,24 @@ import com.squareup.sample.gameworkflow.SyncState.SAVING
 import com.squareup.sample.tictactoe.R
 import com.squareup.workflow.ui.LayoutBinding
 import com.squareup.workflow.ui.ViewBinding
+import com.squareup.workflow.ui.ViewRegistry
+import com.squareup.workflow.ui.ViewRunner
 import com.squareup.workflow.ui.setBackHandler
-import io.reactivex.Observable
-import io.reactivex.disposables.CompositeDisposable
 
-@Suppress("EXPERIMENTAL_API_USAGE")
-internal class GameOverCoordinator(
-  private val screens: Observable<out GameOverScreen>
-) : Coordinator() {
+@Suppress("EXPERIMENTAL_API_USAGE", "EXPERIMENTAL_OVERRIDE")
+internal class GameOverViewRunner : ViewRunner<GameOverScreen> {
 
-  private val subs = CompositeDisposable()
-
+  private lateinit var root: View
   private lateinit var boardView: ViewGroup
   private lateinit var toolbar: Toolbar
   private lateinit var saveItem: MenuItem
   private lateinit var exitItem: MenuItem
 
-  override fun attach(view: View) {
-    super.attach(view)
+  override fun bind(
+    view: View,
+    registry: ViewRegistry
+  ) {
+    root = view
 
     boardView = view.findViewById(R.id.game_play_board)
     toolbar = view.findViewById(R.id.game_play_toolbar)
@@ -61,26 +60,16 @@ internal class GameOverCoordinator(
 
     saveItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
     exitItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
-
-    subs.add(screens.subscribe { s -> update(view, s) })
   }
 
-  override fun detach(view: View) {
-    subs.clear()
-    super.detach(view)
-  }
-
-  private fun update(
-    view: View,
-    screen: GameOverScreen
-  ) {
+  override fun update(newValue: GameOverScreen) {
     exitItem.setOnMenuItemClickListener {
-      screen.onEvent(PlayAgain)
+      newValue.onEvent(PlayAgain)
       true
     }
-    view.setBackHandler { screen.onEvent(Exit) }
+    root.setBackHandler { newValue.onEvent(Exit) }
 
-    when (screen.endGameState.syncState) {
+    when (newValue.endGameState.syncState) {
       SAVING -> {
         saveItem.isEnabled = false
         saveItem.title = "saving…"
@@ -90,7 +79,7 @@ internal class GameOverCoordinator(
         saveItem.isEnabled = true
         saveItem.title = "Unsaved"
         saveItem.setOnMenuItemClickListener {
-          screen.onEvent(TrySaveAgain)
+          newValue.onEvent(TrySaveAgain)
           true
         }
       }
@@ -101,7 +90,7 @@ internal class GameOverCoordinator(
     }
 
     renderGame(
-        boardView, toolbar, screen.endGameState.completedGame, screen.endGameState.playerInfo
+        boardView, toolbar, newValue.endGameState.completedGame, newValue.endGameState.playerInfo
     )
   }
 
@@ -138,8 +127,8 @@ internal class GameOverCoordinator(
     }
   }
 
-  /** Note how easily  we're sharing this layout with [GamePlayCoordinator]. */
+  /** Note how easily  we're sharing this layout with [GamePlayViewRunner]. */
   companion object : ViewBinding<GameOverScreen> by LayoutBinding.of(
-      R.layout.game_play_layout, ::GameOverCoordinator
+      R.layout.game_play_layout, ::GameOverViewRunner
   )
 }
