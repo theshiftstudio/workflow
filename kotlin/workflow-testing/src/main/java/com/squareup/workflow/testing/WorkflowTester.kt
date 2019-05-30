@@ -31,7 +31,10 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.Channel.Factory.UNLIMITED
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.channels.broadcast
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -198,9 +201,9 @@ fun <T, InputT, OutputT : Any, RenderingT>
       snapshot: Snapshot? = null,
       context: CoroutineContext = EmptyCoroutineContext,
       block: WorkflowTester<InputT, OutputT, RenderingT>.() -> T
-    ): T = test(block, context) { factory, inputs ->
-      inputs.offer(input)
-      factory.run(this, inputs, snapshot)
+    ): T = test(block, context) { factory, inputChannel, inputFlow ->
+      inputChannel.offer(input)
+      factory.run(this, inputFlow, snapshot)
     }
 // @formatter:on
 
@@ -231,9 +234,9 @@ fun <T, InputT, StateT, OutputT : Any, RenderingT>
       initialState: StateT,
       context: CoroutineContext = EmptyCoroutineContext,
       block: WorkflowTester<InputT, OutputT, RenderingT>.() -> T
-    ): T = test(block, context) { factory, inputs ->
-      inputs.offer(input)
-      factory.runTestFromState(this, inputs, initialState)
+    ): T = test(block, context) { factory, inputChannel, inputFlow ->
+      inputChannel.offer(input)
+      factory.runTestFromState(this, inputFlow, initialState)
     }
 // @formatter:on
 
@@ -258,13 +261,19 @@ fun <StateT, OutputT : Any, RenderingT>
 private fun <T, I, O : Any, R> test(
   testBlock: (WorkflowTester<I, O, R>) -> T,
   baseContext: CoroutineContext,
-  starter: (WorkflowHost.Factory, inputs: Channel<I>) -> WorkflowHost<O, R>
+  starter: (
+    hostFactory: WorkflowHost.Factory,
+    inputChannel: SendChannel<I>,
+    inputFlow: Flow<I>
+  ) -> WorkflowHost<O, R>
 ): T {
   val context = Dispatchers.Unconfined + baseContext + Job(parent = baseContext[Job])
   val inputs = Channel<I>(capacity = 1)
+  val inputFlow = inputs.broadcast()
+      .asFlow() // TODO good enough?
   @Suppress("ReplaceSingleLineLet")
   val host = WorkflowHost.Factory(context)
-      .let { starter(it, inputs) }
+      .let { starter(it, inputs, inputFlow) }
       .let { WorkflowTester(inputs, it, context) }
 
   var error: Throwable? = null

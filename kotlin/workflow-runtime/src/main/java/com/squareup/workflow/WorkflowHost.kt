@@ -13,8 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-@file:Suppress("EXPERIMENTAL_API_USAGE")
-
 package com.squareup.workflow
 
 import com.squareup.workflow.WorkflowHost.Factory
@@ -23,17 +21,22 @@ import com.squareup.workflow.internal.WorkflowNode
 import com.squareup.workflow.internal.id
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.InternalCoroutinesApi
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.Channel.Factory.RENDEZVOUS
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.produce
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.produceIn
 import kotlinx.coroutines.selects.select
 import org.jetbrains.annotations.TestOnly
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
-import kotlin.coroutines.coroutineContext
 
 private val DEFAULT_WORKFLOW_COROUTINE_NAME = CoroutineName("WorkflowHost")
 
@@ -80,9 +83,11 @@ interface WorkflowHost<out OutputT : Any, out RenderingT> {
      * @param context The [CoroutineContext] used to run the workflow tree. Added to the [Factory]'s
      * context.
      */
+    @FlowPreview
+    @UseExperimental(ExperimentalCoroutinesApi::class)
     fun <InputT, OutputT : Any, RenderingT> run(
       workflow: Workflow<InputT, OutputT, RenderingT>,
-      inputs: ReceiveChannel<InputT>,
+      inputs: Flow<InputT>,
       snapshot: Snapshot? = null,
       context: CoroutineContext = EmptyCoroutineContext
     ): WorkflowHost<OutputT, RenderingT> =
@@ -101,11 +106,12 @@ interface WorkflowHost<out OutputT : Any, out RenderingT> {
           }
       }
 
+    @UseExperimental(FlowPreview::class)
     fun <OutputT : Any, RenderingT> run(
       workflow: Workflow<Unit, OutputT, RenderingT>,
       snapshot: Snapshot? = null,
       context: CoroutineContext = EmptyCoroutineContext
-    ): WorkflowHost<OutputT, RenderingT> = run(workflow, channelOf(Unit), snapshot, context)
+    ): WorkflowHost<OutputT, RenderingT> = run(workflow, flowOf(Unit), snapshot, context)
 
     /**
      * Creates a [WorkflowHost] that runs [workflow] starting from [initialState].
@@ -116,9 +122,11 @@ interface WorkflowHost<out OutputT : Any, out RenderingT> {
      * the testing extension method defined there on your workflow itself.
      */
     @TestOnly
+    @FlowPreview
+    @UseExperimental(ExperimentalCoroutinesApi::class)
     fun <InputT, StateT, OutputT : Any, RenderingT> runTestFromState(
       workflow: StatefulWorkflow<InputT, StateT, OutputT, RenderingT>,
-      inputs: ReceiveChannel<InputT>,
+      inputs: Flow<InputT>,
       initialState: StateT
     ): WorkflowHost<OutputT, RenderingT> =
       object : WorkflowHost<OutputT, RenderingT> {
@@ -136,9 +144,6 @@ interface WorkflowHost<out OutputT : Any, out RenderingT> {
             )
           }
       }
-
-    private fun <T> channelOf(value: T) = Channel<T>(capacity = 1)
-        .apply { offer(value) }
   }
 }
 
@@ -150,16 +155,18 @@ interface WorkflowHost<out OutputT : Any, out RenderingT> {
  * use [WorkflowHost.Factory] to create a [WorkflowHost], or one of the stream operators for your
  * favorite Rx library to map a stream of [InputT]s into [Update]s.
  */
+@FlowPreview
 @UseExperimental(InternalCoroutinesApi::class)
 suspend fun <InputT, StateT, OutputT : Any, RenderingT> runWorkflowTree(
   workflow: StatefulWorkflow<InputT, StateT, OutputT, RenderingT>,
-  inputs: ReceiveChannel<InputT>,
+  inputs: Flow<InputT>,
   initialSnapshot: Snapshot?,
   initialState: StateT? = null,
   onUpdate: suspend (Update<OutputT, RenderingT>) -> Unit
-): Nothing {
+): Nothing = coroutineScope {
+  val inputsChannel = inputs.produceIn(scope = this, capacity = RENDEZVOUS)
   var output: OutputT? = null
-  var input: InputT = inputs.receive()
+  var input: InputT = inputsChannel.receive()
   var inputsClosed = false
   val rootNode = WorkflowNode(
       id = workflow.id(),
@@ -185,7 +192,7 @@ suspend fun <InputT, StateT, OutputT : Any, RenderingT> runWorkflowTree(
         // Stop trying to read from the inputs channel after it's closed.
         if (!inputsClosed) {
           @Suppress("EXPERIMENTAL_API_USAGE")
-          inputs.onReceiveOrNull { newInput ->
+          inputsChannel.onReceiveOrNull { newInput ->
             if (newInput == null) {
               inputsClosed = true
             } else {
@@ -201,6 +208,10 @@ suspend fun <InputT, StateT, OutputT : Any, RenderingT> runWorkflowTree(
         rootNode.tick(this) { it }
       }
     }
+    // Compiler gets confused, and thinks both that this throw is unreachable, and without the throw
+    // that the infinite while loop will exit and thus have the wrong expression type.
+    @Suppress("UNREACHABLE_CODE")
+    throw AssertionError()
   } finally {
     // There's a potential race condition if the producer coroutine is cancelled before it has a
     // chance to enter the try block, since we can't use CoroutineStart.ATOMIC. However, until we

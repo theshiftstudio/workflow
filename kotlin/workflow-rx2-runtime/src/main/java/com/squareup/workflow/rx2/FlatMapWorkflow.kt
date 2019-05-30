@@ -26,7 +26,9 @@ import io.reactivex.Observable
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.channels.consume
+import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.reactive.openSubscription
 import kotlinx.coroutines.rx2.rxFlowable
 
@@ -60,13 +62,16 @@ fun <InputT, OutputT : Any, RenderingT> Flowable<InputT>.flatMapWorkflow(
 // We're ok not having a job here because the lifetime of the coroutine will be controlled by the
   // subscription to the resulting flowable.
   GlobalScope.rxFlowable(context = dispatcher) {
-    // Convert the input stream into a channel.
-    openSubscription().consume {
-      runWorkflowTree(
-          workflow = workflow.asStatefulWorkflow(),
-          inputs = this,
-          initialSnapshot = initialSnapshot,
-          onUpdate = ::send
-      )
-    }
+    runWorkflowTree(
+        workflow = workflow.asStatefulWorkflow(),
+        inputs = asFlow(),
+        initialSnapshot = initialSnapshot,
+        onUpdate = ::send
+    )
   }
+
+internal fun <T> Flowable<out T>.asFlow(): Flow<T> = flow {
+  openSubscription().consumeEach {
+    emit(it)
+  }
+}
