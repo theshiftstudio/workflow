@@ -26,6 +26,9 @@ import io.reactivex.Flowable
 import io.reactivex.Observable
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * Uses a [Workflow] and a [ViewRegistry] to drive a [WorkflowLayout].
@@ -45,7 +48,7 @@ interface WorkflowRunner<out OutputT> {
    * A stream of the [output][OutputT] values emitted by the running
    * [Workflow][com.squareup.workflow.Workflow].
    */
-  val output: Observable<out OutputT>
+  val output: Flowable<out OutputT>
 
   val renderings: Observable<out Any>
 
@@ -59,11 +62,12 @@ interface WorkflowRunner<out OutputT> {
      * It's probably more convenient to use [FragmentActivity.setContentWorkflow]
      * rather than calling this method directly.
      */
+    @FlowPreview
     fun <InputT, OutputT : Any> of(
       activity: FragmentActivity,
       viewRegistry: ViewRegistry,
       workflow: Workflow<InputT, OutputT, Any>,
-      inputs: Flowable<InputT>,
+      inputs: Flow<InputT>,
       savedInstanceState: Bundle?,
       dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate
     ): WorkflowRunner<OutputT> {
@@ -73,6 +77,24 @@ interface WorkflowRunner<out OutputT> {
       @Suppress("UNCHECKED_CAST")
       return ViewModelProviders.of(activity, factory)[WorkflowRunnerViewModel::class.java]
           as WorkflowRunner<OutputT>
+    }
+
+    /**
+     * Returns a [ViewModel][android.arch.lifecycle.ViewModel] implementation of
+     * [WorkflowRunner], tied to the given [activity].
+     *
+     * It's probably more convenient to use [FragmentActivity.setContentWorkflow]
+     * rather than calling this method directly.
+     */
+    @UseExperimental(FlowPreview::class)
+    fun <InputT, OutputT : Any> of(
+      activity: FragmentActivity,
+      viewRegistry: ViewRegistry,
+      workflow: Workflow<InputT, OutputT, Any>,
+      inputs: Flowable<InputT>,
+      savedInstanceState: Bundle?
+    ): WorkflowRunner<OutputT> {
+      return of(activity, viewRegistry, workflow, inputs.asFlow(), savedInstanceState)
     }
 
     /**
@@ -93,6 +115,7 @@ interface WorkflowRunner<out OutputT> {
     /**
      * Convenience overload for workflows that take one input value rather than a stream.
      */
+    @UseExperimental(FlowPreview::class)
     fun <InputT, OutputT : Any> of(
       activity: FragmentActivity,
       viewRegistry: ViewRegistry,
@@ -101,7 +124,7 @@ interface WorkflowRunner<out OutputT> {
       savedInstanceState: Bundle?,
       dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate
     ): WorkflowRunner<OutputT> {
-      return of(activity, viewRegistry, workflow, Observable.just(input), savedInstanceState,
+      return of(activity, viewRegistry, workflow, flowOf(input), savedInstanceState,
           dispatcher)
     }
 
@@ -125,11 +148,12 @@ interface WorkflowRunner<out OutputT> {
      * It's probably more convenient to subclass [WorkflowFragment] rather than calling
      * this method directly.
      */
+    @FlowPreview
     fun <InputT, OutputT : Any> of(
       fragment: Fragment,
       viewRegistry: ViewRegistry,
       workflow: Workflow<InputT, OutputT, Any>,
-      inputs: Flowable<InputT>,
+      inputs: Flow<InputT>,
       savedInstanceState: Bundle?,
       dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate
     ): WorkflowRunner<OutputT> {
@@ -139,6 +163,24 @@ interface WorkflowRunner<out OutputT> {
       @Suppress("UNCHECKED_CAST")
       return ViewModelProviders.of(fragment, factory)[WorkflowRunnerViewModel::class.java]
           as WorkflowRunner<OutputT>
+    }
+
+    /**
+     * Returns a [ViewModel][android.arch.lifecycle.ViewModel] implementation of
+     * [WorkflowRunner], tied to the given [fragment].
+     *
+     * It's probably more convenient to subclass [WorkflowFragment] rather than calling
+     * this method directly.
+     */
+    @UseExperimental(FlowPreview::class)
+    fun <InputT, OutputT : Any> of(
+      fragment: Fragment,
+      viewRegistry: ViewRegistry,
+      workflow: Workflow<InputT, OutputT, Any>,
+      inputs: Flowable<InputT>,
+      savedInstanceState: Bundle?
+    ): WorkflowRunner<OutputT> {
+      return of(fragment, viewRegistry, workflow, inputs.asFlow(), savedInstanceState)
     }
 
     /**
@@ -159,6 +201,7 @@ interface WorkflowRunner<out OutputT> {
     /**
      * Convenience overload for workflows that take one input value rather than a stream.
      */
+    @UseExperimental(FlowPreview::class)
     fun <InputT, OutputT : Any> of(
       fragment: Fragment,
       viewRegistry: ViewRegistry,
@@ -167,7 +210,7 @@ interface WorkflowRunner<out OutputT> {
       savedInstanceState: Bundle?,
       dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate
     ): WorkflowRunner<OutputT> {
-      return of(fragment, viewRegistry, workflow, Flowable.just(input), savedInstanceState,
+      return of(fragment, viewRegistry, workflow, flowOf(input), savedInstanceState,
           dispatcher)
     }
 

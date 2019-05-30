@@ -20,25 +20,29 @@ import android.arch.lifecycle.ViewModelProvider
 import android.os.Bundle
 import com.squareup.workflow.Snapshot
 import com.squareup.workflow.Workflow
-import com.squareup.workflow.WorkflowHost.Update
-import com.squareup.workflow.rx2.flatMapWorkflow
+import com.squareup.workflow.WorkflowHost
+import io.reactivex.BackpressureStrategy.BUFFER
 import io.reactivex.Flowable
 import io.reactivex.Observable
-import io.reactivex.disposables.Disposable
+import io.reactivex.disposables.CompositeDisposable
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.rx2.asObservable
 import kotlin.reflect.jvm.jvmName
 
 @ExperimentalWorkflowUi
 internal class WorkflowRunnerViewModel<OutputT : Any>(
   override val viewRegistry: ViewRegistry,
-  workflowUpdates: Flowable<Update<OutputT, Any>>
+  workflowUpdates: WorkflowHost<OutputT, Any>
 ) : ViewModel(), WorkflowRunner<OutputT> {
 
-  internal class Factory<InputT, OutputT : Any>(
+  internal class Factory<InputT, OutputT : Any>
+  @UseExperimental(FlowPreview::class) constructor(
     private val workflow: Workflow<InputT, OutputT, Any>,
     private val viewRegistry: ViewRegistry,
-    private val inputs: Flowable<InputT>,
+    private val inputs: Flow<InputT>,
     savedInstanceState: Bundle?,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate
   ) : ViewModelProvider.Factory {
@@ -46,33 +50,44 @@ internal class WorkflowRunnerViewModel<OutputT : Any>(
         ?.getParcelable<PickledWorkflow>(BUNDLE_KEY)
         ?.snapshot
 
+    @UseExperimental(FlowPreview::class)
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-      val workflowUpdates = inputs.flatMapWorkflow(workflow, snapshot, dispatcher)
+      val hostFactory = WorkflowHost.Factory(dispatcher)
+      val workflowHost = hostFactory.run(workflow, inputs, snapshot)
       @Suppress("UNCHECKED_CAST")
-      return WorkflowRunnerViewModel(viewRegistry, workflowUpdates) as T
+      return WorkflowRunnerViewModel(viewRegistry, workflowHost) as T
     }
   }
 
-  private lateinit var sub: Disposable
+  private val subs = CompositeDisposable()
 
   @Suppress("EXPERIMENTAL_API_USAGE")
   private val updates =
-    workflowUpdates.toObservable()
+    workflowUpdates.updates.asObservable(Dispatchers.Unconfined)
         .doOnNext { lastSnapshot = it.snapshot }
         .replay(1)
-        .autoConnect(1) { sub = it }
+        .autoConnect(1) { subs.add(it) }
 
   private var lastSnapshot: Snapshot = Snapshot.EMPTY
 
   override val renderings: Observable<out Any> = updates.map { it.rendering }
 
-  override val output: Observable<out OutputT> = updates.filter { it.output != null }
-      .map { it.output!! }
+  override val output: Flowable<out OutputT> =
+    // Buffer on backpressure so outputs don't get lost.
+    updates.toFlowable(BUFFER)
+        .filter { it.output != null }
+        .map { it.output!! }
+        // DON'T replay, outputs are events.
+        .publish()
+        // Subscribe upstream immediately so we immediately start getting notified about outputs.
+        // If [renderings] triggers the upstream subscription before we do, if the workflow emits
+        // an output immediately we might not see it.
+        .autoConnect(0) { subs.add(it) }
 
   override fun onCleared() {
     // Has the side effect of closing the updates channel, which in turn
     // will fire any tear downs registered by the root workflow.
-    sub.dispose()
+    subs.clear()
   }
 
   override fun onSaveInstanceState(outState: Bundle) {
